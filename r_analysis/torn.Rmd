@@ -1,0 +1,158 @@
+---
+title: "Tornado Analysis"
+author: "Owen Widdis"
+date: "2025-12-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+options(scipen = 999)
+
+```
+
+```{r}
+
+# load in csv 
+tornado_df <- read_csv("C:/Users/walke/Documents/umich/courses/SI544/final_proj/tornado_analysis/csv_files/merged_files.csv")
+
+# change type of columns
+numeric_cols <- c(
+  "TOR_LENGTH", "TOR_WIDTH",
+  "DEATHS_DIRECT", "INJURIES_DIRECT",
+  "DAMAGE_PROPERTY_NUM", "DAMAGE_CROPS_NUM"
+)
+tornado_df <- tornado_df %>%
+  mutate(across(all_of(numeric_cols), ~as.numeric(.)))
+
+# create date time objects
+tornado_df <- tornado_df %>%
+  mutate(BEGIN_DATE = mdy(BEGIN_DATE),
+         END_DATE = mdy(END_DATE),
+         YEAR = year(BEGIN_DATE))
+
+
+glimpse(tornado_df)
+
+```
+
+```{r}
+# --- Inflation Adjustment Setup ----------------------------------------------
+
+# 1. Generate inflation table relative to 2024 dollars
+cpi_raw <- inflation_adjust(
+  value = 1,
+  from_date = "1949-01-01",
+  to_date   = "2024-01-01",
+  base_date = "2024-01-01",
+  return_data = TRUE
+)
+
+# Check structure (optional)
+ head(cpi_raw)
+
+# 2. Create YEAR + CPI (inflation index)
+cpi_yearly <- cpi_raw %>%
+  mutate(YEAR = year(date)) %>%
+  select(YEAR, CPI = inflation_factor) %>%
+  distinct()
+
+# --- Merge CPI With Tornado Data ---------------------------------------------
+
+tornado_df <- tornado_df %>%
+  left_join(cpi_yearly, by = "YEAR")
+
+# 3. Create adjusted damage columns
+tornado_df <- tornado_df %>%
+  mutate(
+    DAMAGE_PROPERTY_ADJ = DAMAGE_PROPERTY_NUM * CPI,
+    DAMAGE_CROPS_ADJ    = DAMAGE_CROPS_NUM * CPI,
+    TOTAL_DAMAGE_ADJ    = DAMAGE_PROPERTY_ADJ + DAMAGE_CROPS_ADJ
+  )
+
+# --- Yearly Summary Table -----------------------------------------------------
+
+yearly <- tornado_df %>%
+  group_by(YEAR) %>%
+  summarize(
+    tornado_count = n(),
+    total_damage  = sum(TOTAL_DAMAGE_ADJ, na.rm = TRUE),
+    injuries      = sum(INJURIES_DIRECT, na.rm = TRUE),
+    fatalities    = sum(DEATHS_DIRECT, na.rm = TRUE),
+    avg_damage_per_tornado = total_damage / tornado_count
+  ) %>%
+  ungroup()
+
+```
+
+
+
+
+```{r}
+
+# Analysis
+
+yearly <- tornado_df %>%
+  group_by(YEAR) %>%
+  summarise(
+    tornado_count = n_distinct(EVENT_ID),
+    total_damage = sum(DAMAGE_PROPERTY_NUM, na.rm = TRUE),
+    injuries = sum(INJURIES_DIRECT, na.rm = TRUE),
+    fatalities = sum(DEATHS_DIRECT, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+yearly <- yearly %>%
+  mutate(damage_per_tornado = total_damage / tornado_count)
+  
+yearly$damage_per_tornado <- scales::dollar(yearly$damage_per_tornado)
+
+yearly
+
+
+
+```
+
+```{r}
+
+ggplot(yearly, aes(x = YEAR, y = tornado_count)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Annual Tornado Count in Alabama (2000–2024)",
+    x = "Year",
+    y = "Number of Tornadoes"
+  ) +
+  theme_minimal()
+
+ggplot(yearly, aes(x = YEAR, y = total_damage)) +
+  geom_line(color = "darkred", size = 1.2) +
+  geom_point(color = "darkred", size = 2) +
+  labs(
+    title = "Inflation-Adjusted Property Damage from Tornadoes in Alabama (2000–2024)",
+    x = "Year",
+    y = "Total Damage (USD)"
+  ) +
+  theme_minimal()
+
+ggplot(yearly, aes(x = YEAR, y = damage_per_tornado)) +
+  geom_line(color = "darkgreen", size = 1) +
+  geom_point(color = "darkgreen", size = 2) +
+  labs(
+    title = "Average Damage Per Tornado in Alabama (2000–2024)",
+    x = "Year",
+    y = "Damage per Tornado (USD)"
+  ) +
+  theme_minimal()
+
+
+```
+
