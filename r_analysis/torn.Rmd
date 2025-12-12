@@ -9,150 +9,140 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
-```{r}
-
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(lubridate)
 library(dplyr)
 library(ggplot2)
+library(quantmod)
+library(scales)
 options(scipen = 999)
 
 ```
 
 ```{r}
-
-# load in csv 
+# Load CSV
 tornado_df <- read_csv("C:/Users/walke/Documents/umich/courses/SI544/final_proj/tornado_analysis/csv_files/merged_files.csv")
 
-# change type of columns
+# Convert numeric columns
 numeric_cols <- c(
   "TOR_LENGTH", "TOR_WIDTH",
   "DEATHS_DIRECT", "INJURIES_DIRECT",
   "DAMAGE_PROPERTY_NUM", "DAMAGE_CROPS_NUM"
 )
+
 tornado_df <- tornado_df %>%
   mutate(across(all_of(numeric_cols), ~as.numeric(.)))
 
-# create date time objects
+# Convert dates + create DATE column for joining
 tornado_df <- tornado_df %>%
-  mutate(BEGIN_DATE = mdy(BEGIN_DATE),
-         END_DATE = mdy(END_DATE),
-         YEAR = year(BEGIN_DATE))
+  mutate(
+    BEGIN_DATE = mdy(BEGIN_DATE),
+    END_DATE   = mdy(END_DATE),
+    DATE       = as.Date(BEGIN_DATE),
+    YEAR       = year(BEGIN_DATE)
+  )
 
+tornado_df <- tornado_df %>%
+  select(
+    -EVENT_ID,
+    -CZ_NAME_STR,
+    -EVENT_TYPE
+  )
+
+glimpse(tornado_df)
+```
+
+
+```{r}
+
+# Download CPI from FRED (monthly)
+getSymbols("CPIAUCSL", src = "FRED")
+
+# Convert to tibble
+cpi_df <- CPIAUCSL %>%
+  data.frame(date = index(.)) %>%
+  as_tibble() %>%
+  rename(CPIAUCSL = CPIAUCSL)
+
+# 2025 CPI target (your value)
+target_cpi <- 324.368
+
+# Inflation adjustment factor
+cpi_df <- cpi_df %>%
+  mutate(adj_factor = target_cpi / CPIAUCSL)
+
+glimpse(cpi_df)
+
+```
+
+```{r}
+tornado_df <- tornado_df %>%
+  mutate(
+    DATE = as.Date(BEGIN_DATE),
+    DATE_MONTH = floor_date(DATE, unit = "month")
+  )
+
+# Left join by DATE (tornado) and date (CPI)
+tornado_df <- tornado_df %>%
+  left_join(cpi_df, by = c("DATE_MONTH" = "date"))
+
+```
+
+```{r}
+tornado_df <- tornado_df %>%
+  mutate(
+    DAMAGE_PROPERTY_2025 = DAMAGE_PROPERTY_NUM * adj_factor,
+    DAMAGE_CROPS_2025    = DAMAGE_CROPS_NUM * adj_factor,
+    DAMAGE_PROPERTY_2025_DOL = dollar(DAMAGE_PROPERTY_2025),
+    DAMAGE_CROPS_2025_DOL    = dollar(DAMAGE_CROPS_2025)
+  )
 
 glimpse(tornado_df)
 
 ```
 
 ```{r}
-# --- Inflation Adjustment Setup ----------------------------------------------
-
-# 1. Generate inflation table relative to 2024 dollars
-cpi_raw <- inflation_adjust(
-  value = 1,
-  from_date = "1949-01-01",
-  to_date   = "2024-01-01",
-  base_date = "2024-01-01",
-  return_data = TRUE
-)
-
-# Check structure (optional)
- head(cpi_raw)
-
-# 2. Create YEAR + CPI (inflation index)
-cpi_yearly <- cpi_raw %>%
-  mutate(YEAR = year(date)) %>%
-  select(YEAR, CPI = inflation_factor) %>%
-  distinct()
-
-# --- Merge CPI With Tornado Data ---------------------------------------------
-
-tornado_df <- tornado_df %>%
-  left_join(cpi_yearly, by = "YEAR")
-
-# 3. Create adjusted damage columns
-tornado_df <- tornado_df %>%
+# Clean tornado dataset with uppercase column names
+tornado_clean <- tornado_df %>%
+  # Keep only relevant columns (uppercase)
+  select(
+    DATE, YEAR,
+    BEGIN_DATE, END_DATE,
+    BEGIN_LAT, BEGIN_LON,
+    END_LAT, END_LON,
+    TOR_LENGTH, TOR_WIDTH,
+    DEATHS_DIRECT, INJURIES_DIRECT,
+    DAMAGE_PROPERTY_NUM, DAMAGE_CROPS_NUM,
+    DAMAGE_PROPERTY_2025, DAMAGE_CROPS_2025
+  ) %>%
+  # Rename columns to uppercase + more readable
+  rename(
+    START_DATE = BEGIN_DATE,
+    END_DATE   = END_DATE,
+    START_LAT  = BEGIN_LAT,
+    START_LON  = BEGIN_LON,
+    END_LAT    = END_LAT,
+    END_LON    = END_LON,
+    TORNADO_LENGTH = TOR_LENGTH,
+    TORNADO_WIDTH  = TOR_WIDTH,
+    DEATHS  = DEATHS_DIRECT,
+    INJURIES = INJURIES_DIRECT,
+    DAMAGE_PROPERTY = DAMAGE_PROPERTY_NUM,
+    DAMAGE_CROPS    = DAMAGE_CROPS_NUM,
+    DAMAGE_PROPERTY_2025_USD = DAMAGE_PROPERTY_2025,
+    DAMAGE_CROPS_2025_USD    = DAMAGE_CROPS_2025
+  ) %>%
+  # Add formatted dollar versions for display
   mutate(
-    DAMAGE_PROPERTY_ADJ = DAMAGE_PROPERTY_NUM * CPI,
-    DAMAGE_CROPS_ADJ    = DAMAGE_CROPS_NUM * CPI,
-    TOTAL_DAMAGE_ADJ    = DAMAGE_PROPERTY_ADJ + DAMAGE_CROPS_ADJ
-  )
-
-# --- Yearly Summary Table -----------------------------------------------------
-
-yearly <- tornado_df %>%
-  group_by(YEAR) %>%
-  summarize(
-    tornado_count = n(),
-    total_damage  = sum(TOTAL_DAMAGE_ADJ, na.rm = TRUE),
-    injuries      = sum(INJURIES_DIRECT, na.rm = TRUE),
-    fatalities    = sum(DEATHS_DIRECT, na.rm = TRUE),
-    avg_damage_per_tornado = total_damage / tornado_count
+    DAMAGE_PROPERTY_2025_DOL = dollar(DAMAGE_PROPERTY_2025_USD),
+    DAMAGE_CROPS_2025_DOL    = dollar(DAMAGE_CROPS_2025_USD)
   ) %>%
-  ungroup()
+  # Sort by DATE ascending
+  arrange(DATE)
+
+# Preview
+glimpse(tornado_clean)
 
 ```
-
-
-
-
-```{r}
-
-# Analysis
-
-yearly <- tornado_df %>%
-  group_by(YEAR) %>%
-  summarise(
-    tornado_count = n_distinct(EVENT_ID),
-    total_damage = sum(DAMAGE_PROPERTY_NUM, na.rm = TRUE),
-    injuries = sum(INJURIES_DIRECT, na.rm = TRUE),
-    fatalities = sum(DEATHS_DIRECT, na.rm = TRUE)
-  ) %>%
-  ungroup()
-
-yearly <- yearly %>%
-  mutate(damage_per_tornado = total_damage / tornado_count)
-  
-yearly$damage_per_tornado <- scales::dollar(yearly$damage_per_tornado)
-
-yearly
-
-
-
-```
-
-```{r}
-
-ggplot(yearly, aes(x = YEAR, y = tornado_count)) +
-  geom_col(fill = "steelblue") +
-  labs(
-    title = "Annual Tornado Count in Alabama (2000–2024)",
-    x = "Year",
-    y = "Number of Tornadoes"
-  ) +
-  theme_minimal()
-
-ggplot(yearly, aes(x = YEAR, y = total_damage)) +
-  geom_line(color = "darkred", size = 1.2) +
-  geom_point(color = "darkred", size = 2) +
-  labs(
-    title = "Inflation-Adjusted Property Damage from Tornadoes in Alabama (2000–2024)",
-    x = "Year",
-    y = "Total Damage (USD)"
-  ) +
-  theme_minimal()
-
-ggplot(yearly, aes(x = YEAR, y = damage_per_tornado)) +
-  geom_line(color = "darkgreen", size = 1) +
-  geom_point(color = "darkgreen", size = 2) +
-  labs(
-    title = "Average Damage Per Tornado in Alabama (2000–2024)",
-    x = "Year",
-    y = "Damage per Tornado (USD)"
-  ) +
-  theme_minimal()
-
-
-```
-
