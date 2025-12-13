@@ -5,21 +5,29 @@ date: "2025-12-01"
 output: html_document
 ---
 
+# R Setup
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+install.packages("viridis")
 library(tidyverse)
 library(lubridate)
 library(dplyr)
 library(ggplot2)
 library(quantmod)
 library(scales)
+library(ggplot2)
+library(viridis)  # for nice color scales
+
 options(scipen = 999)
 
 ```
+
+# Load data
 
 ```{r}
 # Load CSV
@@ -44,16 +52,14 @@ tornado_df <- tornado_df %>%
     YEAR       = year(BEGIN_DATE)
   )
 
+# rm columns
 tornado_df <- tornado_df %>%
   select(
     -EVENT_ID,
     -CZ_NAME_STR,
     -EVENT_TYPE
   )
-
-glimpse(tornado_df)
 ```
-
 
 ```{r}
 
@@ -66,18 +72,13 @@ cpi_df <- CPIAUCSL %>%
   as_tibble() %>%
   rename(CPIAUCSL = CPIAUCSL)
 
-# 2025 CPI target (your value)
+# 2025 CPI target
 target_cpi <- 324.368
 
 # Inflation adjustment factor
 cpi_df <- cpi_df %>%
   mutate(adj_factor = target_cpi / CPIAUCSL)
 
-glimpse(cpi_df)
-
-```
-
-```{r}
 tornado_df <- tornado_df %>%
   mutate(
     DATE = as.Date(BEGIN_DATE),
@@ -88,9 +89,6 @@ tornado_df <- tornado_df %>%
 tornado_df <- tornado_df %>%
   left_join(cpi_df, by = c("DATE_MONTH" = "date"))
 
-```
-
-```{r}
 tornado_df <- tornado_df %>%
   mutate(
     DAMAGE_PROPERTY_2025 = DAMAGE_PROPERTY_NUM * adj_factor,
@@ -99,11 +97,6 @@ tornado_df <- tornado_df %>%
     DAMAGE_CROPS_2025_DOL    = dollar(DAMAGE_CROPS_2025)
   )
 
-glimpse(tornado_df)
-
-```
-
-```{r}
 # Clean tornado dataset with uppercase column names
 tornado_clean <- tornado_df %>%
   # Keep only relevant columns (uppercase)
@@ -144,5 +137,109 @@ tornado_clean <- tornado_df %>%
 
 # Preview
 glimpse(tornado_clean)
+
+```
+
+# Tests
+```{r}
+
+df_corr_price_intensity <- tornado_clean %>%
+  select(
+    DAMAGE_PROPERTY_2025_USD,
+    DAMAGE_CROPS_2025_USD,
+    TORNADO_LENGTH,
+    TORNADO_WIDTH
+  ) %>%
+  drop_na()
+
+summary(df_corr_price_intensity)
+
+
+cor.test(
+  df_corr_price_intensity$DAMAGE_PROPERTY_2025_USD,
+  df_corr_price_intensity$TORNADO_LENGTH,
+  method = "spearman"
+)
+
+cor.test(
+  df_corr_price_intensity$DAMAGE_PROPERTY_2025_USD,
+  df_corr_price_intensity$TORNADO_WIDTH,
+  method = "spearman"
+)
+
+cor(
+  df_corr_price_intensity %>%
+    select(
+      DAMAGE_PROPERTY_2025_USD,
+      TORNADO_LENGTH,
+      TORNADO_WIDTH
+    ),
+  method = "spearman",
+  use = "complete.obs"
+)
+
+ggplot(df_corr_price_intensity,
+       aes(TORNADO_WIDTH, DAMAGE_PROPERTY_2025_USD)) +
+  geom_point(alpha = 0.3) +
+  scale_y_log10() +
+  labs(
+    title = "Inflation-Adjusted Property Damage vs Tornado Width",
+    x = "Tornado Width",
+    y = "Property Damage (2025 USD, log scale)"
+  )
+
+
+```
+
+
+
+```{r}
+
+# regression
+df_reg <- tornado_clean %>%
+  select(
+    DAMAGE_PROPERTY_2025_USD,
+    TORNADO_LENGTH,
+    TORNADO_WIDTH,
+    YEAR
+  ) %>%
+  filter(
+    !is.na(DAMAGE_PROPERTY_2025_USD),
+    DAMAGE_PROPERTY_2025_USD > 0,
+    !is.na(TORNADO_LENGTH),
+    !is.na(TORNADO_WIDTH)
+  ) %>%
+  mutate(
+    LOG_DAMAGE = log(DAMAGE_PROPERTY_2025_USD),
+    LENGTH_Z = as.numeric(scale(TORNADO_LENGTH)),
+    WIDTH_Z  = as.numeric(scale(TORNADO_WIDTH))
+  )
+model_1 <- lm(
+  LOG_DAMAGE ~ LENGTH_Z + WIDTH_Z,
+  data = df_reg
+)
+
+summary(model_1)
+
+# Make the combined plot
+ggplot(df_reg, aes(x = TORNADO_LENGTH, y = LOG_DAMAGE, color = TORNADO_WIDTH)) +
+  geom_point(alpha = 0.4) +                             # scatter points
+  geom_smooth(method = "lm", se = TRUE, color = "black") +  # regression line
+  scale_color_viridis(option = "plasma", trans = "log", direction = -1) +  # log color scale for width
+  labs(
+    title = "Inflation-Adjusted Property Damage by Tornado Length and Width",
+    subtitle = "Point color indicates tornado width; line shows regression trend",
+    x = "Tornado Length (miles)",
+    y = "Log(Property Damage in 2025 USD)",
+    color = "Tornado Width (yards)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(face = "italic"),
+    legend.position = "right" 
+  ) + xlim(0, 50)
+
+
 
 ```
