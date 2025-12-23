@@ -1,19 +1,35 @@
 ---
-title: "Tornado Analysis"
+title: "Alabama Tornado Analysis"
 author: "Owen Widdis"
 date: "2025-12-01"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
+# Background
 
-# R Setup
+In 2008, while on a family trip to the Wisconsin Dells, we were forced to take shelter in a roadside ditch to escape an oncoming tornado. Thankfully, we emerged unharmed, but the experience left a lasting impression on me. As I grew older, that encounter sparked an interest in tornadoes and their effects on infrastructure, the environment, and the lives of those in their path. 
+
+# Research Question
+
+With growing concern about climate change and its potential impact on storm intensity, I became interested in exploring how shifts in atmospheric conditions have influenced tornadoes. Specifically, I wanted to investigate whether or not there is an affect on inflation-adjusted damage costs from tornadoes in Alabama from 1950 - 2025.
+
+### Intensity Variables
+
+To measure the intensity of a given storm, I considered several variables. In 1971, Ted Fujita developed the Fujita Scale to distinguish between weak and strong tornadoes. This scale was quickly adopted by the meteorological community; however, long-term use revealed several inconsistencies and inaccuracies in storm ratings. Researchers at Texas Tech University proposed the Enhanced Fujita (EF) Scale in 2004, building upon the original framework. The EF Scale uses damage indicators and degrees of damage to estimate wind speeds, which are then used to assign a storm’s rating. The National Weather Service officially adopted the EF Scale in 2007.
+
+It is important to note that the dataset used for this project (the Storm Events Database from the National Oceanic and Atmospheric Administration) includes both F and EF Scale ratings (F Scale: 1950–February 1, 2007; EF Scale: February 1, 2007–2025). Tornadoes that occurred prior to the development of the Fujita Scale in 1971 were rated retroactively using newspaper reports, eyewitness accounts, and other available documentation describing storm impacts.
+
+Second, I examined damage estimates from each storm across two variables: property damage and crop damage. To account for inflation, I used the quantmod library to access Federal Reserve Consumer Price Index (CPI) data for each month from 1950 to 2025 and adjusted all damage estimates accordingly.
+
+### Focus Area
+
+I selected Alabama as my focus region for several key reasons. First and foremost, Alabama experiences a high frequency of tornadic activity. Second, the state has been affected by numerous high-impact and costly tornado events, largely due to its relatively dense human and built infrastructure compared to other tornado-prone regions such as Kansas and Oklahoma, which are more predominantly rural and agricultural. As a result, Alabama represents a compelling case study, as it encompasses a mix of agricultural land use and concentrated population centers, allowing for an examination of tornado impacts across varied infrastructure types.
+
+# Methods
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-```
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-install.packages("viridis")
 library(tidyverse)
 library(lubridate)
 library(dplyr)
@@ -27,11 +43,11 @@ options(scipen = 999)
 
 ```
 
-# Load data
+### Load data 
 
 ```{r}
 # Load CSV
-tornado_df <- read_csv("C:/Users/walke/Documents/umich/courses/SI544/final_proj/tornado_analysis/csv_files/merged_files.csv")
+tornado_df <- read_csv("C:/Users/walke/Documents/umich/courses/SI544/final_proj/tornado_analysis/merged/mega_tornado_filtered.csv")
 
 # Convert numeric columns
 numeric_cols <- c(
@@ -60,6 +76,7 @@ tornado_df <- tornado_df %>%
     -EVENT_TYPE
   )
 ```
+### Load CPI data and join it with Tornado dataframe, then cleanup dataframe.
 
 ```{r}
 
@@ -104,7 +121,7 @@ tornado_clean <- tornado_df %>%
     DATE, YEAR,
     BEGIN_DATE, END_DATE,
     BEGIN_LAT, BEGIN_LON,
-    END_LAT, END_LON,
+    END_LAT, END_LON, TOR_F_SCALE,
     TOR_LENGTH, TOR_WIDTH,
     DEATHS_DIRECT, INJURIES_DIRECT,
     DAMAGE_PROPERTY_NUM, DAMAGE_CROPS_NUM,
@@ -134,13 +151,42 @@ tornado_clean <- tornado_df %>%
   ) %>%
   # Sort by DATE ascending
   arrange(DATE)
+tornado_clean <- tornado_clean %>%
+  mutate(
+    TOR_F_SCALE_NUM = as.numeric(str_extract(TOR_F_SCALE, "\\d+"))
+  )
+
 
 # Preview
-glimpse(tornado_clean)
+tail(tornado_clean, 1000)
 
 ```
 
-# Tests
+### Exploratory Data Analysis
+
+```{r}
+annual_damage <- tornado_clean %>%
+  group_by(YEAR) %>%
+  summarise(
+    total_property_damage = sum(DAMAGE_PROPERTY_2025_USD, na.rm = TRUE),
+    total_crop_damage     = sum(DAMAGE_CROPS_2025_USD, na.rm = TRUE),
+    tornado_count         = n(),
+    mean_intensity        = mean(TOR_F_SCALE, na.rm = TRUE)
+  )
+
+ggplot(annual_damage, aes(x = YEAR, y = total_property_damage)) +
+  geom_line() +
+  scale_y_continuous(labels = dollar) +
+  labs(
+    title = "Annual Inflation-Adjusted Property Damage from Tornadoes in Alabama",
+    x = "Year",
+    y = "Property Damage (2025 USD)"
+  ) +
+  theme_minimal()
+
+```
+
+
 ```{r}
 
 df_corr_price_intensity <- tornado_clean %>%

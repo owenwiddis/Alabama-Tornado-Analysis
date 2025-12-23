@@ -36,7 +36,7 @@ if dfs:
 
     # Step 5: Save the mega CSV
     mega_csv_path = Path(
-        r"C:\Users\walke\Documents\umich\courses\SI544\final_proj\tornado_analysis\csv_files"
+        r"C:\Users\walke\Documents\umich\courses\SI544\final_proj\tornado_analysis\merged\mega_tornado_data.csv"
     )
     mega_df.to_csv(mega_csv_path, index=False)
     print(f"Mega CSV saved to {mega_csv_path}")
@@ -46,15 +46,15 @@ else:
 print(mega_df.columns.tolist())
 
 # List the columns you want to keep (exact names from the CSV)
-columns_to_keep = columns_to_keep = [
+columns_to_keep = [
     "EVENT_ID",
     "BEGIN_DATE",
     "END_DATE",
     "CZ_NAME_STR",
     "EVENT_TYPE",
-    "MAGNITUDE",
     "TOR_LENGTH",
     "TOR_WIDTH",
+    "TOR_F_SCALE",
     "DEATHS_DIRECT",
     "INJURIES_DIRECT",
     "DAMAGE_PROPERTY_NUM",
@@ -71,6 +71,6 @@ mega_df = mega_df[columns_to_keep]
 
 # Save the filtered CSV
 mega_df.to_csv(
-    r"C:\Users\walke\Documents\umich\courses\SI544\Final Project\Tornado Analysis\mega_storm_data_filtered.csv",
+    r"C:\Users\walke\Documents\umich\courses\SI544\final_proj\tornado_analysis\merged\mega_tornado_filtered.csv",
     index=False,
 )
