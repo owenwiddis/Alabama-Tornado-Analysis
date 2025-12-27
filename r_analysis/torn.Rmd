@@ -16,7 +16,7 @@ With growing concern about climate change and its potential impact on storm inte
 
 ### Intensity Variables
 
-To measure the intensity of a given storm, I considered several variables. In 1971, Ted Fujita developed the Fujita Scale to distinguish between weak and strong tornadoes. This scale was quickly adopted by the meteorological community; however, long-term use revealed several inconsistencies and inaccuracies in storm ratings. Researchers at Texas Tech University proposed the Enhanced Fujita (EF) Scale in 2004, building upon the original framework. The EF Scale uses damage indicators and degrees of damage to estimate wind speeds, which are then used to assign a storm’s rating. The National Weather Service officially adopted the EF Scale in 2007.
+To measure the intensity of a given storm, I considered several variables. In 1971, Ted Fujita developed the Fujita Scale to distinguish between weak and strong tornadoes. This scale was quickly adopted by the meteorological community; however, long-term use revealed several inconsistencies and inaccuracies in storm ratings. Researchers at Texas Tech University proposed the Enhanced Fujita (EF) Scale in 2004, building upon the original framework, which rates storms on a scale of 0-5, with 5 being the most intensive. The EF Scale uses damage indicators and degrees of damage to estimate wind speeds, which are then used to assign a storm’s rating. The National Weather Service officially adopted the EF Scale in 2007.
 
 It is important to note that the dataset used for this project (the Storm Events Database from the National Oceanic and Atmospheric Administration) includes both F and EF Scale ratings (F Scale: 1950–February 1, 2007; EF Scale: February 1, 2007–2025). Tornadoes that occurred prior to the development of the Fujita Scale in 1971 were rated retroactively using newspaper reports, eyewitness accounts, and other available documentation describing storm impacts.
 
@@ -46,6 +46,7 @@ options(scipen = 999)
 ### Load data 
 
 ```{r}
+
 # Load CSV
 tornado_df <- read_csv("C:/Users/walke/Documents/umich/courses/SI544/final_proj/tornado_analysis/merged/mega_tornado_filtered.csv")
 
@@ -75,6 +76,7 @@ tornado_df <- tornado_df %>%
     -CZ_NAME_STR,
     -EVENT_TYPE
   )
+
 ```
 ### Load CPI data and join it with Tornado dataframe, then cleanup dataframe.
 
@@ -156,7 +158,6 @@ tornado_clean <- tornado_clean %>%
     TOR_F_SCALE_NUM = as.numeric(str_extract(TOR_F_SCALE, "\\d+"))
   )
 
-
 # Preview
 tail(tornado_clean, 1000)
 
@@ -164,25 +165,96 @@ tail(tornado_clean, 1000)
 
 ### Exploratory Data Analysis
 
+The following 5 visualization give a glimpse into the summary statistics of the data
+
+Firstly, I created a data frame that displays the intensity variables of a given year, showing the year, total damages, amount of *recorded* tornadoes, and the mean intensity rating. 
+
 ```{r}
+
 annual_damage <- tornado_clean %>%
   group_by(YEAR) %>%
   summarise(
     total_property_damage = sum(DAMAGE_PROPERTY_2025_USD, na.rm = TRUE),
     total_crop_damage     = sum(DAMAGE_CROPS_2025_USD, na.rm = TRUE),
+    full_damage_cost      = sum(total_property_damage + total_crop_damage, na.rm = TRUE),
     tornado_count         = n(),
-    mean_intensity        = mean(TOR_F_SCALE, na.rm = TRUE)
+    mean_intensity        = mean(TOR_F_SCALE_NUM, na.rm = TRUE)
   )
 
-ggplot(annual_damage, aes(x = YEAR, y = total_property_damage)) +
+annual_damage
+
+```
+
+Second, this visualization presents annual total tornado damage costs. While most years are characterized by relatively modest losses, several extreme outliers are evident, most notably 2011, which stands out as an anomalously destructive year due to widespread and unusually intense tornado activity in Alabama and across the United States.
+
+```{r}
+
+ggplot(annual_damage, aes(x = YEAR, y = full_damage_cost)) +
   geom_line() +
   scale_y_continuous(labels = dollar) +
+  coord_cartesian(ylim = c(0, 2000000000)) +
   labs(
-    title = "Annual Inflation-Adjusted Property Damage from Tornadoes in Alabama",
+    title = "Annual Inflation-Adjusted Total Damage Costs from Tornadoes in Alabama",
     x = "Year",
-    y = "Property Damage (2025 USD)"
+    y = "Total Damage (2025 USD)"
   ) +
   theme_minimal()
+
+```
+
+The following visualizations show the distribution of damage cost ranges for each year. The distibution is highly right skewed, meaning there are only a few years that have experienced catastophic damage amounts, while the majority of years have relatively low damage amounts. To better visualize the distribution and support regression analysis, the second visualization shows the damage values log-transformed, which reduces the influence of extreme outliers and allows for clearer comparison across typical years. The log-scaled x-axis represents orders of magnitude of annual damage, allowing years with vastly different loss totals to be compared more clearly.
+
+```{r}
+
+ggplot(annual_damage, aes(x = full_damage_cost)) +
+  geom_histogram(bins = 50) +
+  scale_x_continuous(labels = dollar) +
+  labs(
+    title = "Distribution of Annual Tornado Damage",
+    x = "Annual Property Damage (2025 USD)",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+ggplot(annual_damage, aes(x = log(full_damage_cost + 1))) +
+  geom_histogram(bins = 40) +
+  labs(
+    title = "Log-Transformed Distribution of Annual Property Damage",
+    x = "Log(Property Damage + 1)",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+```
+
+The below visual shows a boxplot that shows how the rating of tornadoes relates to the amount of damage cost the storm produced. The plot shows that median damage generally increases with tornado intensity, but there is substantial overlap between categories. Lower-rated tornadoes occasionally produce high damage, often due to factors such as population density and infrastructure exposure, while not all high-intensity tornadoes result in extreme damage. This highlights that while tornado intensity is strongly related to damage potential, exposure and vulnerability play a critical role in determining realized economic impact.
+
+```{r}
+
+ggplot(tornado_clean %>% filter(DAMAGE_PROPERTY_2025_USD > 0 | DAMAGE_CROPS_2025_USD > 0),
+       aes(x = factor(TOR_F_SCALE_NUM), y = DAMAGE_PROPERTY_2025_USD + DAMAGE_CROPS_2025_USD)) +
+  geom_boxplot() +
+  scale_y_log10(labels = dollar) +
+  labs(
+    title = "Tornado Damage by F/EF Rating",
+    x = "F / EF Rating",
+    y = "Property Damage (2025 USD, log scale)"
+  ) +
+  theme_minimal()
+
+```
+
+Lastly, this dataframe shows overall summary statistics.
+
+```{r}
+
+annual_damage %>%
+  summarise(
+    mean_annual_damage   = dollar(mean(full_damage_cost)),
+    median_annual_damage = dollar(median(full_damage_cost)),
+    max_annual_damage    = dollar(max(full_damage_cost)),
+    mean_tornadoes_per_year = round(mean(tornado_count), 1)
+  )
 
 ```
 
