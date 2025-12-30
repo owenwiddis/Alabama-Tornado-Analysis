@@ -37,6 +37,7 @@ library(quantmod)
 library(scales)
 library(ggplot2)
 library(viridis)  # for nice color scales
+library(sf)
 
 options(scipen = 999)
 
@@ -353,6 +354,44 @@ mk_test
 The Tau value measures the strength and direction of a trend by comparing the relative ordering of values over time. The negative value of tau tells us that a decrease in annual damage slightly outnumbers increases across the study period, while the small magnitude reflects a weak trend rather than a steep decline. Alongside the linear regression results, it suggests that inflation-adjusted tornado damages have not increased over time and may have ever so slightly declined, even as interannual variability remains high.
 
 These results suggest that long-term economic impacts from tornadoes in Alabama are not characterized by increasing inflation-adjusted damages over time. While climate change may influence the atmospheric conditions associated with severe storms, the observed damage patterns likely due to the combined effects of improved forecasting, warning systems, building practices, and emergency response, which may have offset potential increases in hazard-related risk. Additionally, the data being used spans across ~75 years where many surveying techniques were used and adapted during this period, making it succeptible to inconsistencies and data that is not definitively reflective of the true population.
+
+### Geospatial Visualization
+
+NOAA storm event data provides the starting and ending latitude and longitude values for a given tornado. This piqued my interest as it allows for a great opportunity to create a spatial visualization of tornadic impact on Alabama.
+
+I created a shapefile and exported it as a GEOJSON file to be able to work with the data on ArcGIS online. 
+
+```{r}
+tornado_clean_filtered <- tornado_clean %>%
+  filter(!is.na(START_LAT) & !is.na(START_LON) &
+         !is.na(END_LAT) & !is.na(END_LON))
+
+# Create sf LINEString
+tornado_paths <- tornado_clean_filtered %>%
+  rowwise() %>%
+  mutate(
+    geometry = list(
+      st_linestring(
+        matrix(
+          c(START_LON, START_LAT,
+            END_LON,   END_LAT),
+          ncol = 2,
+          byrow = TRUE
+        )
+      )
+    )
+  ) %>%
+  st_as_sf(crs = 4326)
+
+print(tornado_paths)
+
+
+st_write(tornado_paths, "tornado_paths_alabama.geojson", driver = "GeoJSON")
+
+
+
+
+```
 
 ### Concluding Thoughts
 
