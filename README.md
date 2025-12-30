@@ -65,6 +65,13 @@ infrastructure types.
 
 ### Load data
 
+The data wrangling component of this project was quite tricky. While I
+initially attempted to clean the data in R, I transitioned to a Python
+using the pandas library, which proved more efficient and painless for
+handling the data. The Python script accesses multiple CSV exports from
+the NOAA Storm Events Database and then merges them into a single
+dataset for analysis.
+
 ``` r
 # Load CSV
 tornado_df <- read_csv("C:/Users/walke/Documents/umich/courses/SI544/final_proj/tornado_analysis/merged/mega_tornado_filtered.csv")
@@ -540,6 +547,82 @@ potential increases in hazard-related risk. Additionally, the data being
 used spans across ~75 years where many surveying techniques were used
 and adapted during this period, making it succeptible to inconsistencies
 and data that is not definitively reflective of the true population.
+
+### Geospatial Visualization
+
+NOAA storm event data provides the starting and ending latitude and
+longitude values for a given tornado. This piqued my interest as it
+allows for a great opportunity to create a spatial visualization of
+tornadic impact on Alabama.
+
+I integrated a GIS component by converting tornado start and end
+coordinates into spatial line features representing tornado paths. These
+features were generated in R using the sf package and published to
+ArcGIS Online as a hosted feature layer. The resulting interactive map
+visualizes tornado tracks across Alabama, symbolized by EF rating. This
+approach highlights spatial patterns in tornado activity and supports
+interactive exploration through web-based GIS tools.
+
+The published web application can be found here -
+<https://umich.maps.arcgis.com/apps/instant/interactivelegend/index.html?appid=664a29cd8bf74ed798dc1dc6ada1d566> -
+and as a PDF in this repository.
+
+``` r
+tornado_clean_filtered <- tornado_clean %>%
+  filter(!is.na(START_LAT) & !is.na(START_LON) &
+         !is.na(END_LAT) & !is.na(END_LON))
+
+# Create sf LINEString
+tornado_paths <- tornado_clean_filtered %>%
+  rowwise() %>%
+  mutate(
+    geometry = list(
+      st_linestring(
+        matrix(
+          c(START_LON, START_LAT,
+            END_LON,   END_LAT),
+          ncol = 2,
+          byrow = TRUE
+        )
+      )
+    )
+  ) %>%
+  st_as_sf(crs = 4326)
+
+print(tornado_paths)
+```
+
+    ## Simple feature collection with 2783 features and 20 fields
+    ## Geometry type: LINESTRING
+    ## Dimension:     XY
+    ## Bounding box:  xmin: -88.469 ymin: 30.23 xmax: -84.9419 ymax: 35.02
+    ## Geodetic CRS:  WGS 84
+    ## # A tibble: 2,783 × 21
+    ## # Rowwise: 
+    ##    DATE        YEAR START_DATE END_DATE   START_LAT START_LON END_LAT END_LON
+    ##  * <date>     <dbl> <date>     <date>         <dbl>     <dbl>   <dbl>   <dbl>
+    ##  1 1950-04-18  1950 1950-04-18 1950-04-18      30.7     -88.2    30.8   -88.1
+    ##  2 1952-02-13  1952 1952-02-13 1952-02-13      33.6     -87.7    33.6   -87.6
+    ##  3 1952-02-13  1952 1952-02-13 1952-02-13      33.6     -87.6    33.6   -87.6
+    ##  4 1952-02-13  1952 1952-02-13 1952-02-13      34.0     -86.8    34.0   -86.7
+    ##  5 1952-02-13  1952 1952-02-13 1952-02-13      34.0     -86.7    34.1   -86.7
+    ##  6 1952-02-29  1952 1952-02-29 1952-02-29      34.5     -85.7    34.5   -85.7
+    ##  7 1952-03-03  1952 1952-03-03 1952-03-03      33.3     -87.9    33.4   -87.9
+    ##  8 1952-03-22  1952 1952-03-22 1952-03-22      34.6     -87      34.7   -86.6
+    ##  9 1953-01-08  1953 1953-01-08 1953-01-08      33.4     -86.1    33.4   -86.1
+    ## 10 1953-01-23  1953 1953-01-23 1953-01-23      31.5     -88      31.6   -87.9
+    ## # ℹ 2,773 more rows
+    ## # ℹ 13 more variables: TOR_F_SCALE <chr>, TORNADO_LENGTH <dbl>,
+    ## #   TORNADO_WIDTH <dbl>, DEATHS <dbl>, INJURIES <dbl>, DAMAGE_PROPERTY <dbl>,
+    ## #   DAMAGE_CROPS <dbl>, DAMAGE_PROPERTY_2025_USD <dbl>,
+    ## #   DAMAGE_CROPS_2025_USD <dbl>, DAMAGE_PROPERTY_2025_DOL <chr>,
+    ## #   DAMAGE_CROPS_2025_DOL <chr>, TOR_F_SCALE_NUM <dbl>,
+    ## #   geometry <LINESTRING [°]>
+
+``` r
+# comment since file has already been created
+# st_write(tornado_paths, "tornado_paths_alabama.geojson", driver = "GeoJSON")
+```
 
 ### Concluding Thoughts
 
